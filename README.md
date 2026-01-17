@@ -1,36 +1,220 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI-EXPLORE
 
-## Getting Started
+Интерактивное веб-приложение для стриминга ответа LLM и автоматического извлечения Vega-Lite JSON спецификации с последующим рендерингом графика в реальном времени.
 
-First, run the development server:
+Проект демонстрирует полный pipeline:
+LLM Stream-->Text Output-->JSON Extract-->Validation-->Vega Preview
+
+---
+
+## Как запустить
+
+### 1. Установка зависимостей
+
+```bash
+npm install
+```
+
+### 2. Запуск в режиме разработки
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Приложение будет доступно по адресу:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+http://localhost:3000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Production-сборка (опционально)
 
-## Learn More
+```bash
+npm run build
+npm start
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Как работает стрим и Vega spec
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Общая архитектура
 
-## Deploy on Vercel
+Приложение разделено на несколько логических слоёв:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+SSE / LLM Stream-->StreamingOutput (UI)-->Vega Extractor (JSON Parser + Validator)-->VegaPreview (Chart Renderer)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Обработка стрима
+
+### 1. Источник данных
+
+Стрим обрабатывается через кастомный хук:
+
+```
+src/hooks/useSSE.ts
+```
+
+Он:
+
+- Подключается к SSE-источнику (или локальному дампу)
+- Получает токены текста по частям
+- Постепенно добавляет их в общее состояние `text`
+
+### 2. Отображение текста
+
+Компонент:
+
+```
+src/components/StreamingOutput.tsx
+```
+
+Функции:
+
+- Рендерит текст посимвольно / по чанкам
+- Поддерживает подсветку JSON-блоков
+- Используется для визуального отображения "сырых" данных от LLM
+
+---
+
+## Извлечение Vega-Lite спецификации
+
+### 1. Поиск JSON-блока
+
+Хук:
+
+```
+src/hooks/useVegaExtractor.ts
+```
+
+Логика:
+
+- Сканирует весь стрим-текст
+- Ищет блок формата:
+
+````text
+```json
+{ ... }
+````
+
+```
+
+### 2. Парсинг и валидация
+
+Используется утилита:
+
+```
+
+src/utils/parseJson.ts
+
+```
+
+Процесс:
+- `JSON.parse()` для преобразования строки в объект
+- Runtime-проверка структуры (наличие `mark`, `encoding`)
+- Типизация через `VegaSpec` (основан на `TopLevelSpec` из `vega-lite`)
+
+Если JSON некорректен:
+- В `StreamingPanel` отображается ошибка
+- График не рендерится
+
+---
+
+##  Рендеринг графика
+
+Компонент:
+
+```
+
+src/components/VegaPreview.tsx
+
+````
+
+Особенности:
+- Использует `vega-embed`
+- Загружается динамически с отключенным SSR:
+
+Таким образом LLM отвечает только за визуальную модель, а реальные данные контролируются приложением.
+
+---
+
+## Управление
+
+Компонент:
+
+```
+src/components/Controls.tsx
+```
+
+Поддерживает:
+
+- Play — запуск стрима
+- Pause — пауза
+- Reset — сброс текста
+- Speed Slider — управление скоростью стрима (0.25x – 2x)
+
+Задержка рассчитывается как:
+
+```ts
+delay = (50 + Math.random() * 100) / speed
+```
+
+---
+
+##  Структура проекта
+
+```
+src/
+├── app/
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+│
+├── components/
+│   ├── Controls.tsx
+│   ├── CopyVegaSpec.tsx
+│   ├── StreamingOutput.tsx
+│   ├── StreamingPanel.tsx
+│   └── VegaPreview.tsx
+│
+├── hooks/
+│   ├── useSSE.ts
+│   └── useVegaExtractor.ts
+│
+├── types/
+│   └── streams.types.ts
+│
+├── utils/
+│   ├── extractVegaSpec.ts
+│   └── parseJson.ts
+│
+└── README.md
+```
+
+---
+
+##  Ключевые фичи
+
+- Реальный LLM-стрим (симуляция или SSE)
+- Автоматическое извлечение Vega-Lite JSON
+- Runtime-валидация spec
+- Type-safe визуализация
+- Live preview графиков
+- Copy Vega spec в один клик
+- Speed control для стрима
+
+---
+
+##  Цель проекта
+
+Продемонстрировать надёжный и прозрачный пайплайн интеграции LLM с визуализацией данных, где:
+
+- Модель генерирует **описание графика**
+- Приложение отвечает за **валидацию, данные и рендеринг**
+
+Это делает систему устойчивой к ошибкам LLM и удобной для отладки и расширения.
+
+````
